@@ -1,0 +1,1030 @@
+---
+title: "Scripts for Isoscapes analysis for the Boardman/Ottaway River"
+author: "Selina Al-Nazzal, Greg Jacobs"
+date: "4 April 2025"
+output: html_document
+---
+
+# Data import and managment
+
+```{r}
+library(tidyverse) 
+library(remotes)
+library(lmerTest)
+library(emmeans)
+## Install the latest version of SSN2 from github
+remotes::install_github("USEPA/SSN2", ref="develop", dependencies=TRUE)
+library(SSN2)
+library(ggplot2)
+library(sf) # handle geospatial data
+library(patchwork) # nice multi-panel plot arranging
+library(png)
+# streams <- st_read("streamdata/streams.shp") %>% 
+#   select(COMID, geometry)
+# streams500 <- st_read("streamdata/pred_streams500.shp") %>%
+#   filter(COMID%in%streams$COMID) %>% 
+#   select(predID500, COMID, geometry)
+# borpred <- st_read("streamdata/pred_bor500.shp") %>% 
+#   select(COMID, geometry)
+# function to scale variables given mu and sd (intended for preds tables)
+scale_fun <- function(df, df_mu, df_sd){
+  df<- df %>%
+  mutate(z_lnQ5=(lnQ5-df_mu$lnQ5)/df_sd$lnQ5,
+         z_Q5=(Q5-df_mu$Q5)/df_sd$Q5,
+         z_p_FstCatR=(p_FstCatR-df_mu$p_FstCatR)/df_sd$p_FstCatR,
+         z_p_FstWsR=(p_FstWsR-df_mu$p_FstWsR)/df_sd$p_FstWsR,
+         z_p_FstWs=(p_FstWs-df_mu$p_FstWs)/df_sd$p_FstWs,
+         z_p_WetCatR=(p_WetCatR-df_mu$p_WetCatR)/df_sd$p_WetCatR,
+         z_p_WetWs=(p_WetWs-df_mu$p_WetWs)/df_sd$p_WetWs,
+         z_p_DecidWsR=(p_DecidWsR-df_mu$p_DecidWsR)/df_sd$p_DecidWsR,
+         z_p_CropWs=(p_CropWs-df_mu$p_CropWs)/df_sd$p_CropWs,
+         z_p_ImpCat=(p_ImpCat-df_mu$p_ImpCat)/df_sd$p_ImpCat,
+         z_PopCat_SKm=(PopCat_SKm-df_mu$PopCat_SKm)/df_sd$PopCat_SKm,
+         z_BFICat=(BFICat-df_mu$BFICat)/df_sd$BFICat)
+  return(df)
+}
+```
+
+# Georeferenced Isotope Data
+
+## Biofilm 
+
+```{r}
+lsn.path.biof <- "./lsn.biof/BORbiof.ssn"
+# import the biofilm SSN data object
+biof_ssn <- ssn_import(path=lsn.path.biof, predpts=c("pred500", "predNHD"),
+  overwrite=TRUE)
+# center and scale covariates
+df_mu <- biof_ssn$obs %>% select(SiteID, Q5:BFICat) %>% distinct() %>% 
+  summarize(across(Q5:BFICat, mean))
+df_sd <- biof_ssn$obs %>% select(SiteID, Q5:BFICat) %>% distinct() %>% 
+  summarize(across(Q5:BFICat, sd))
+biof_ssn$obs <- biof_ssn$obs %>% 
+  mutate(across(Q5:BFICat, scale, .names="z_{.col}"))
+biof_ssn$preds$pred500 <- scale_fun(biof_ssn$preds$pred500, 
+                                                  df_mu, df_sd)
+biof_ssn$preds$predNHD <- scale_fun(biof_ssn$preds$predNHD, 
+                                                  df_mu, df_sd)
+## create distance matrices needed for spatial statistical modeling
+ssn_create_distmat(ssn.object=biof_ssn, predpts=c("pred500", "predNHD"),
+  among_predpts=TRUE, overwrite=TRUE)
+```
+
+## Heptageniidae
+
+```{r}
+lsn.path.hept <- "./lsn.hept/BORhept.ssn"
+# import the heptilm SSN data object
+hept_ssn <- ssn_import(path=lsn.path.hept, predpts=c("pred500", "predNHD"),
+  overwrite=TRUE)
+# center and scale covariates
+hept_ssn$obs <- hept_ssn$obs %>% 
+  mutate(across(Q5:BFICat, scale, .names="z_{.col}"))
+hept_ssn$preds$pred500 <- scale_fun(hept_ssn$preds$pred500, 
+                                                  df_mu, df_sd)
+hept_ssn$preds$predNHD <- scale_fun(hept_ssn$preds$predNHD, 
+                                                  df_mu, df_sd)
+## create distance matrices needed for spatial statistical modeling
+ssn_create_distmat(ssn.object=hept_ssn, predpts=c("pred500", "predNHD"),
+  among_predpts=TRUE, overwrite=TRUE)
+```
+
+## Amphipoda
+
+```{r}
+lsn.path.amph <- "./lsn.amph/BORamph.ssn"
+# import the amphilm SSN data object
+amph_ssn <- ssn_import(path=lsn.path.amph, predpts=c("pred500", "predNHD"),
+  overwrite=TRUE)
+# center and scale covariates
+amph_ssn$obs <- amph_ssn$obs %>% 
+  mutate(across(Q5:BFICat, scale, .names="z_{.col}"))
+amph_ssn$preds$pred500 <- scale_fun(amph_ssn$preds$pred500, 
+                                                  df_mu, df_sd)
+amph_ssn$preds$predNHD <- scale_fun(amph_ssn$preds$predNHD, 
+                                                  df_mu, df_sd)
+## create distance matrices needed for spatial statistical modeling
+ssn_create_distmat(ssn.object=amph_ssn, predpts=c("pred500", "predNHD"),
+  among_predpts=TRUE, overwrite=TRUE)
+```
+
+## Hydrobiidae
+
+```{r}
+lsn.path.muds <- "./lsn.muds/BORmuds.ssn"
+# import the mudsilm SSN data object
+muds_ssn <- ssn_import(path=lsn.path.muds, predpts=c("pred500", "predNHD"),
+  overwrite=TRUE)
+# center and scale covariates
+muds_ssn$obs <- muds_ssn$obs %>% 
+  mutate(across(Q5:BFICat, scale, .names="z_{.col}"))
+muds_ssn$preds$pred500 <- scale_fun(muds_ssn$preds$pred500, 
+                                                  df_mu, df_sd)
+muds_ssn$preds$predNHD <- scale_fun(muds_ssn$preds$predNHD, 
+                                                  df_mu, df_sd)
+## create distance matrices needed for spatial statistical modeling
+ssn_create_distmat(ssn.object=muds_ssn, predpts=c("pred500", "predNHD"),
+  among_predpts=TRUE, overwrite=TRUE)
+```
+
+## Summaries and comparisons
+
+```{r}
+rbind(df_mu, df_sd) %>% st_drop_geometry() %>% mutate(metric=c("mean", "sd"))
+```
+
+
+```{r}
+# overall sample sizes
+bind_rows(
+biof_ssn$obs %>% summarize(nd13C=sum(!is.na(d13C)), nd15N=sum(!is.na(d15N))) %>% mutate(taxon='Biofilm'),
+hept_ssn$obs %>% summarize(taxon=first(Family), FFG=first(Feeding_group), nd13C=sum(!is.na(d13C)), nd15N=sum(!is.na(d15N)), nd34S=sum(!is.na(d34S))),
+amph_ssn$obs %>% summarize(taxon=first(Family), FFG=first(Feeding_group), nd13C=sum(!is.na(d13C)), nd15N=sum(!is.na(d15N)), nd34S=sum(!is.na(d34S))),
+muds_ssn$obs %>% summarize(taxon=first(Family), FFG=first(Feeding_group), nd13C=sum(!is.na(d13C)), nd15N=sum(!is.na(d15N)), nd34S=sum(!is.na(d34S)))
+) %>% st_drop_geometry() %>% select(taxon, FFG, nd13C, nd15N, nd34S)
+```
+
+Compare average isotopic values by taxon using repeated measures ANOVA (replication at the site level). The repeated measures anova was fit with lme4::lmer()
+
+### d13C
+
+Inference of ANOVA using Kenward-Roger degrees of freedom adjustment for random effect of site.
+
+```{r}
+anovadat <- do.call(bind_rows, list(st_drop_geometry(biof_ssn$obs), 
+                              st_drop_geometry(hept_ssn$obs), 
+                              st_drop_geometry(amph_ssn$obs), 
+                              st_drop_geometry(muds_ssn$obs))) %>% 
+  mutate(Taxon=factor(ifelse(is.na(Substrate), Family, Substrate),
+                      levels=c("Hester-Dendy", "Rock", "Heptageniidae", 
+                               "Dogielinotidae", "Hydrobiidae")))
+anova13C <- lmer(d13C ~ Taxon + (1|SiteID), data=anovadat)
+anova(anova13C, ddf="Kenward-Roger")
+```
+
+Least square means and pairwise differences among taxa using Tukey post-hoc comparisons with kenward-Roger degrees of freedom adjustment. 
+
+```{r}
+emm13C <- emmeans(anova13C, list(pairwise ~ Taxon), adjust="tukey")
+emm13C
+```
+
+### d15N
+
+Inference of ANOVA using Kenward-Roger degrees of freedom adjustment for random effect of site. 
+
+```{r}
+anova15N <- lmer(d15N ~ Taxon + (1|SiteID), data=anovadat)
+anova(anova15N, ddf="Kenward-Roger")
+```
+
+Least square means and pairwise differences among taxa using Tukey post-hoc comparisons with kenward-Roger degrees of freedom adjustment. 
+
+```{r}
+emm15N <- emmeans(anova15N, list(pairwise ~ Taxon), adjust="tukey")
+emm15N
+```
+
+### d34S
+
+Inference of ANOVA using Kenward-Roger degrees of freedom adjustment for random effect of site. 
+
+```{r}
+anova34S <- lmer(d34S ~ Taxon + (1|SiteID), data=anovadat)
+anova(anova34S, ddf="Kenward-Roger")
+```
+
+Least square means and pairwise differences among taxa using Tukey post-hoc comparisons with kenward-Roger degrees of freedom adjustment. 
+
+```{r}
+emm34S <- emmeans(anova34S, list(pairwise ~ Taxon), adjust="tukey")
+emm34S
+```
+
+
+```{r fig.width=6, fig.height=3}
+datmeans <- left_join(
+  emm13C[[1]] %>% data.frame() %>% rename_with(~ paste0(.x, "_d13C"), -Taxon), 
+  emm15N[[1]] %>% data.frame() %>% rename_with(~ paste0(.x, "_d15N"), -Taxon)) %>% 
+  left_join( 
+    emm34S[[1]] %>% data.frame() %>% 
+      rename_with(~ paste0(.x, "_d34S"), -Taxon)) %>% 
+  mutate(Taxon2=case_when(
+    Taxon=="Hester-Dendy" ~ "Biofilm (HD)",
+    Taxon=="Rock" ~ "Biofilm (Rock)",
+    Taxon=="Dogielinotidae" ~ "Amphipoda",
+    .default=Taxon
+  ) %>% factor(levels=c("Heptageniidae", "Hydrobiidae", "Amphipoda", "Biofilm (HD)", "Biofilm (Rock)")))
+pmCN <- ggplot(datmeans, aes(x=emmean_d13C, y=emmean_d15N, color=Taxon2)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower.CL_d15N, ymax=upper.CL_d15N)) +
+  geom_errorbarh(aes(xmin=lower.CL_d13C, xmax=upper.CL_d13C, height=0)) +
+  ylab(expression(delta^{15}~N)) + 
+  xlab(expression(delta^{13}~C))  
+pmCS <- ggplot(datmeans, aes(x=emmean_d13C, y=emmean_d34S, color=Taxon2)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower.CL_d34S, ymax=upper.CL_d34S)) +
+  geom_errorbarh(aes(xmin=lower.CL_d13C, xmax=upper.CL_d13C, height=0)) +
+  ylab(expression(delta^{34}~S)) + 
+  xlab(expression(delta^{13}~C))  
+pmSN <- ggplot(datmeans, aes(x=emmean_d15N, y=emmean_d34S, color=Taxon2)) +
+  geom_point() +
+  geom_errorbar(aes(ymin=lower.CL_d34S, ymax=upper.CL_d34S)) +
+  geom_errorbarh(aes(xmin=lower.CL_d15N, xmax=upper.CL_d15N, height=0)) +
+  ylab(expression(delta^{34}~S)) + 
+  xlab(expression(delta^{15}~N))  
+pmCN + pmCS + pmSN + plot_layout(guides="collect") & 
+  theme_bw() &
+  theme(legend.title=element_blank(), legend.position="bottom")
+```
+
+### Covariation of isotopes
+
+To assess covariation among stable isotopes in our samples, we conducted least squares regression analysis on the means of stable isotope biplots for each pair of isotopes in the three we analyzed. The relationship between δ13C and δ15N show a positive covariation (Figure 4A), δ15N and δ34S showed a slight negative covariation (Figure 4B), and δ34S and δ13C showed no relationship (Figure 4C). 
+
+```{r}
+aggbiofobs <- biof_ssn$obs %>% 
+  group_by(SiteID, Substrate) %>% 
+  summarize(Md13C=mean(d13C, na.rm=TRUE),
+            SDd13C=sd(d13C, na.rm=TRUE),
+            Md15N=mean(d15N, na.rm=TRUE),
+            SDd15N=sd(d15N, na.rm=TRUE)) %>% 
+  ungroup()
+aggheptobs <- hept_ssn$obs %>% 
+  group_by(SiteID) %>% 
+  summarize(Md13C=mean(d13C, na.rm=TRUE),
+            SDd13C=sd(d13C, na.rm=TRUE),
+            Md15N=mean(d15N, na.rm=TRUE),
+            SDd15N=sd(d15N, na.rm=TRUE),
+            Md34S=mean(d34S, na.rm=TRUE),
+            SDd34S=sd(d34S, na.rm=TRUE)) %>% 
+  ungroup()
+aggmudsobs <- muds_ssn$obs %>% 
+  group_by(SiteID) %>% 
+  summarize(Md13C=mean(d13C, na.rm=TRUE),
+            SDd13C=sd(d13C, na.rm=TRUE),
+            Md15N=mean(d15N, na.rm=TRUE),
+            SDd15N=sd(d15N, na.rm=TRUE),
+            Md34S=mean(d34S, na.rm=TRUE),
+            SDd34S=sd(d34S, na.rm=TRUE)) %>% 
+  ungroup()
+aggamphobs <- amph_ssn$obs %>% 
+  group_by(SiteID) %>% 
+  summarize(Md13C=mean(d13C, na.rm=TRUE),
+            SDd13C=sd(d13C, na.rm=TRUE),
+            Md15N=mean(d15N, na.rm=TRUE),
+            SDd15N=sd(d15N, na.rm=TRUE),
+            Md34S=mean(d34S, na.rm=TRUE),
+            SDd34S=sd(d34S, na.rm=TRUE)) %>% 
+  ungroup()
+
+glspvals <- list(
+  BiofilmHDCN=summary(nlme::gls(Md13C~Md15N, filter(aggbiofobs, Substrate!="Rock")), na.action="na.omit")$tTable[2,4],
+  BiofilmRockCN=summary(nlme::gls(Md13C~Md15N, filter(aggbiofobs, Substrate=="Rock")), na.action="na.omit")$tTable[2,4],
+#
+  HeptCN=summary(nlme::gls(Md13C~Md15N, aggheptobs, na.action="na.omit"))$tTable[2,4],
+  HeptCS=summary(nlme::gls(Md13C~Md34S, aggheptobs, na.action="na.omit"))$tTable[2,4],
+  HeptNS=summary(nlme::gls(Md15N~Md34S, aggheptobs, na.action="na.omit"))$tTable[2,4],
+#
+  MudsCN=summary(nlme::gls(Md13C~Md15N, aggmudsobs, na.action="na.omit"))$tTable[2,4],
+  MudsCS=summary(nlme::gls(Md13C~Md34S, aggmudsobs, na.action="na.omit"))$tTable[2,4],
+  MudsNS=summary(nlme::gls(Md15N~Md34S, aggmudsobs, na.action="na.omit"))$tTable[2,4],
+#
+  AmphCN=summary(nlme::gls(Md13C~Md15N, aggamphobs, na.action="na.omit"))$tTable[2,4],
+  AmphCS=summary(nlme::gls(Md13C~Md34S, aggamphobs, na.action="na.omit"))$tTable[2,4],
+  AmphNS=summary(nlme::gls(Md15N~Md34S, aggamphobs, na.action="na.omit"))$tTable[2,4]
+)
+glspvals
+```
+
+
+```{r}
+pcova <- ggplot(aggbiofobs, aes(y=Md15N, x=Md13C, color=Substrate))+
+  geom_smooth(method="lm") +
+  geom_point() + 
+  geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) +
+  labs(tag = "a)") +
+  scale_color_grey(end=0.6) +
+  theme_classic() + theme(legend.position="none") +
+  ylab(expression(delta^{15}~N))+xlab(expression(delta^{13}~C))
+pcovb <- ggplot(aggheptobs, aes(y=Md15N, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "b)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{13}~C))
+pcovc <- ggplot(aggheptobs, aes(y=Md15N, x=Md34S))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md34S-SDd34S, xmax=Md34S+SDd34S)) + 
+  labs(tag = "c)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{34}~S))
+pcovd <- ggplot(aggheptobs, aes(y=Md34S, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md34S-SDd34S, ymax=Md34S+SDd34S)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "d)") +
+  theme_classic()+ylab(expression(delta^{34}~S))+xlab(expression(delta^{13}~C))
+pcove <- ggplot(aggmudsobs, aes(y=Md15N, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "e)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{13}~C))
+pcovf <- ggplot(aggmudsobs, aes(y=Md15N, x=Md34S))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md34S-SDd34S, xmax=Md34S+SDd34S)) + 
+  labs(tag = "f)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{34}~S))
+pcovg <- ggplot(aggmudsobs, aes(y=Md34S, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md34S-SDd34S, ymax=Md34S+SDd34S)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "g)") +
+  theme_classic()+ylab(expression(delta^{34}~S))+xlab(expression(delta^{13}~C))
+pcovh <- ggplot(aggamphobs, aes(y=Md15N, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "h)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{13}~C))
+pcovi <- ggplot(aggamphobs, aes(y=Md15N, x=Md34S))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md15N-SDd15N, ymax=Md15N+SDd15N)) +
+  geom_errorbarh(aes(xmin=Md34S-SDd34S, xmax=Md34S+SDd34S)) + 
+  labs(tag = "i)") +
+  theme_classic()+ylab(expression(delta^{15}~N))+xlab(expression(delta^{34}~S))
+pcovj <- ggplot(aggamphobs, aes(y=Md34S, x=Md13C))+
+  geom_smooth(method="lm") +
+  geom_point() + geom_errorbar(aes(ymin=Md34S-SDd34S, ymax=Md34S+SDd34S)) +
+  geom_errorbarh(aes(xmin=Md13C-SDd13C, xmax=Md13C+SDd13C)) + 
+  labs(tag = "j)") +
+  theme_classic()+ylab(expression(delta^{34}~S))+xlab(expression(delta^{13}~C))
+row_label_1 <- wrap_elements(panel=grid::textGrob('Biofilm', rot=-90))
+row_label_2 <- wrap_elements(panel=grid::textGrob(expression(italic('Heptageniidae')), rot=-90))
+row_label_3 <- wrap_elements(panel=grid::textGrob(expression(italic('Hydrobiidae')), rot=-90))
+row_label_4 <- wrap_elements(panel=grid::textGrob(expression(italic('Amphipoda')), rot=-90))
+pcov <- pcova + plot_spacer() + plot_spacer() + row_label_1 + 
+  pcovb + pcovc + pcovd + row_label_2 + 
+  pcove + pcovf + pcovg + row_label_3 + 
+  pcovh + pcovi + pcovj + row_label_4 + 
+  plot_layout(ncol=4, widths=c(4,4,4,1)) #+
+  #plot_annotation(tag_levels=c("a", "", "b","c","d","","e","f","g","","h","i","j",""))
+ggsave("pcov.png", pcov, height=8, width=8, dpi=300, bg="white")
+knitr::include_graphics("pcov.png")
+```
+
+
+# Isoscapes
+
+## Candidate models
+
+```{r}
+# create list object to fill with results: [SSN]$[Response]$[output]
+reslist <- list()
+hypsd13C <- c("1", # null 
+              "z_p_FstWsR", # shading, forest in WsR shade river
+              "z_p_WetCatR", # shading, less cover in wetlands
+              "z_lnQ5 + z_p_FstWs", # shading, stream width and cover
+              "z_p_FstCatR", # Biomass inputs, more leaves from forest
+              "z_p_DecidWsR ", # Biomass inputs, more leaves - deciduous 
+              "z_p_FstWs", # Biomass inputs, DOC inputs from surface runoff
+              "z_p_CropWs", # chemical, synthetic fertilizers
+              "z_lnQ5 + z_p_FstWsR", # multiproc light and biomass inputs
+              "z_p_WetWs + z_p_FstWs", # multiproc different biomass inputs
+              "z_p_FstWs + z_p_CropWs", # multiproc facilitate prim prod
+              "z_p_WetWs + z_p_CropWs", # multiproc facilitate prim prod
+              "z_p_WetCatR + z_BFICat") # multiproc riparian wetland processes
+hypsd15N <- c("1", # null
+              "z_p_FstWsR", # shading, forest shades river 
+              "z_lnQ5 + z_p_FstWs", # shading, width and cover control shade
+              "z_p_CropWs", # biomass, added fertilizers
+              "z_PopCat_SKm", # biomass, added residential waste
+              "z_p_WetWs", # Chemical, N-fixing alder wetlands
+              "z_lnQ5 + z_p_FstWs + z_p_CropWs", # multiproc, fert & pp
+              "z_p_WetWs + z_p_CropWs", # multiproc, fert & pp
+              "z_p_WetCatR + z_BFICat")# multiproc, riparian wetland processes
+hypsd34S <- c("1", # null
+              "z_p_CropWs", # biomass, added fertilizers 
+              "z_PopCat_SKm", # biomass, added residential waste
+              "z_p_ImpCat", # biomass, added municipal/residential waste
+              "z_p_FstCatR", # chemical, sulfur bacteria below leaf litter
+              "z_BFICat", # chemical, sulfur bacteria in adjacent anoxic sed
+              "z_p_WetCatR + z_BFICat", # multiproc, wetland sulfur bacteria
+              "z_PopCat_SKm + z_BFICat") # multiproc, wastewater vs groundwater
+```
+
+## Biofilm Isoscapes
+
+### $\delta^{13}C$
+
+```{r}
+#plot(tg.biof.C)
+namesd13C <- paste0("C", 0:(length(hypsd13C)-1), ".ssn")
+reslist$biof$d13C$candset <- lapply(hypsd13C, function(x) {
+  ssn_lm(formula=formula(paste("d13C ~ factor(Substrate)*(", x, ")")),
+         ssn.object =biof_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$biof$d13C$candset) <- namesd13C
+reslist$biof$d13C$seltab <- lapply(reslist$biof$d13C$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd13C) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$biof$d13C$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$biof$d13C$seltab
+```
+
+Top model
+
+```{r}
+reslist$biof$d13C$top <- with(reslist$biof$d13C, candset[[seltab$model[1]]])
+reslist$biof$d13C$top.aug <- augment(reslist$biof$d13C$top)
+reslist$biof$d13C$pred.aug <- augment(reslist$biof$d13C$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$biof$d13C$top.loocv <- loocv(reslist$biof$d13C$top, cv_predict=TRUE)
+summary(reslist$biof$d13C$top)
+varcomp(reslist$biof$d13C$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+### $\delta^{15}N$
+
+```{r}
+namesd15N <- paste0("N", 0:(length(hypsd15N)-1), ".ssn")
+reslist$biof$d15N$candset <- lapply(hypsd15N, function(x) {
+  ssn_lm(formula=formula(paste("d15N ~ factor(Substrate)*(", x, ")")),
+         ssn.object =biof_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$biof$d15N$candset) <- namesd15N
+reslist$biof$d15N$seltab <- lapply(reslist$biof$d15N$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd15N) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$biof$d15N$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$biof$d15N$seltab
+```
+
+Top model
+
+```{r}
+reslist$biof$d15N$top <- with(reslist$biof$d15N, candset[[seltab$model[1]]])
+reslist$biof$d15N$top.aug <- augment(reslist$biof$d15N$top)
+reslist$biof$d15N$pred.aug <- augment(reslist$biof$d15N$top, newdata ="pred500",                                      se_fit=TRUE, interval="prediction")
+reslist$biof$d15N$top.loocv <- loocv(reslist$biof$d15N$top, cv_predict=TRUE)
+summary(reslist$biof$d15N$top)
+varcomp(reslist$biof$d15N$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+### Heptageniidae Isoscapes
+
+#### $\delta^{13}C$
+
+```{r}
+namesd13C <- paste0("C", 0:(length(hypsd13C)-1), ".ssn")
+reslist$hept$d13C$candset <- lapply(hypsd13C, function(x) {
+  ssn_lm(formula=formula(paste("d13C ~", x)),
+         ssn.object =hept_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$hept$d13C$candset) <- namesd13C
+reslist$hept$d13C$seltab <- lapply(reslist$hept$d13C$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd13C) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$hept$d13C$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$hept$d13C$seltab
+```
+
+Top model
+
+```{r}
+reslist$hept$d13C$top <- with(reslist$hept$d13C, candset[[seltab$model[1]]])
+reslist$hept$d13C$top.aug <- augment(reslist$hept$d13C$top)
+reslist$hept$d13C$pred.aug <- augment(reslist$hept$d13C$top,  newdata ="pred500",                                      se_fit=TRUE, interval="prediction")
+reslist$hept$d13C$top.loocv <- loocv(reslist$hept$d13C$top, cv_predict=TRUE)
+summary(reslist$hept$d13C$top)
+varcomp(reslist$hept$d13C$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{15}N$
+
+```{r}
+namesd15N <- paste0("N", 0:(length(hypsd15N)-1), ".ssn")
+reslist$hept$d15N$candset <- lapply(hypsd15N, function(x) {
+  ssn_lm(formula=formula(paste("d15N ~", x)),
+         ssn.object =hept_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$hept$d15N$candset) <- namesd15N
+reslist$hept$d15N$seltab <- lapply(reslist$hept$d15N$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd15N) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$hept$d15N$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$hept$d15N$seltab
+```
+
+Top model
+
+```{r}
+reslist$hept$d15N$top <- with(reslist$hept$d15N, candset[[seltab$model[1]]])
+reslist$hept$d15N$top.aug <- augment(reslist$hept$d15N$top)
+reslist$hept$d15N$pred.aug <- augment(reslist$hept$d15N$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$hept$d15N$top.loocv <- loocv(reslist$hept$d15N$top, cv_predict=TRUE)
+summary(reslist$hept$d15N$top)
+varcomp(reslist$hept$d15N$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{34}S$
+
+```{r}
+namesd34S <- paste0("S", 0:(length(hypsd34S)-1), ".ssn")
+reslist$hept$d34S$candset <- lapply(hypsd34S, function(x) {
+  ssn_lm(formula=formula(paste("d34S ~", x)),
+         ssn.object =hept_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         #random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$hept$d34S$candset) <- namesd34S
+reslist$hept$d34S$seltab <- lapply(reslist$hept$d34S$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd34S) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$hept$d34S$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$hept$d34S$seltab
+```
+
+Top model
+
+```{r}
+reslist$hept$d34S$top <- with(reslist$hept$d34S, candset[[seltab$model[1]]])
+reslist$hept$d34S$top.aug <- augment(reslist$hept$d34S$top)
+reslist$hept$d34S$pred.aug <- augment(reslist$hept$d34S$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$hept$d34S$top.loocv <- loocv(reslist$hept$d34S$top, cv_predict=TRUE)
+summary(reslist$hept$d34S$top)
+varcomp(reslist$hept$d34S$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+### Amphipoda Isoscapes
+
+#### $\delta^{13}C$
+
+```{r}
+namesd13C <- paste0("C", 0:(length(hypsd13C)-1), ".ssn")
+reslist$amph$d13C$candset <- lapply(hypsd13C, function(x) {
+  ssn_lm(formula=formula(paste("d13C ~", x)),
+         ssn.object =amph_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$amph$d13C$candset) <- namesd13C
+reslist$amph$d13C$seltab <- lapply(reslist$amph$d13C$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd13C) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$amph$d13C$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$amph$d13C$seltab
+```
+
+Top model
+
+```{r}
+reslist$amph$d13C$top <- with(reslist$amph$d13C, candset[[seltab$model[1]]])
+reslist$amph$d13C$top.aug <- augment(reslist$amph$d13C$top)
+reslist$amph$d13C$pred.aug <- augment(reslist$amph$d13C$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$amph$d13C$top.loocv <- loocv(reslist$amph$d13C$top, cv_predict=TRUE)
+summary(reslist$amph$d13C$top)
+varcomp(reslist$amph$d13C$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{15}N$
+
+```{r}
+namesd15N <- paste0("N", 0:(length(hypsd15N)-1), ".ssn")
+reslist$amph$d15N$candset <- lapply(hypsd15N, function(x) {
+  ssn_lm(formula=formula(paste("d15N ~", x)),
+         ssn.object =amph_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$amph$d15N$candset) <- namesd15N
+reslist$amph$d15N$seltab <- lapply(reslist$amph$d15N$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd15N) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$amph$d15N$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$amph$d15N$seltab
+```
+
+Top model
+
+```{r}
+reslist$amph$d15N$top <- with(reslist$amph$d15N, candset[[seltab$model[1]]])
+reslist$amph$d15N$top.aug <- augment(reslist$amph$d15N$top)
+reslist$amph$d15N$pred.aug <- augment(reslist$amph$d15N$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$amph$d15N$top.loocv <- loocv(reslist$amph$d15N$top, cv_predict=TRUE)
+summary(reslist$amph$d15N$top)
+varcomp(reslist$amph$d15N$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{34}S$
+
+Due to low sample size, create isoscapes from the intercept-only model and only use river-specific spatial error structures
+
+```{r}
+namesd34S <- paste0("S", 0:(length(hypsd34S)-1), ".ssn")
+reslist$amph$d34S$candset <- lapply(hypsd34S, function(x) {
+  ssn_lm(formula=formula(paste("d34S ~", x)),
+         ssn.object =amph_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         #euclid_type ="exponential",
+         #random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$amph$d34S$candset) <- namesd34S
+reslist$amph$d34S$seltab <- lapply(reslist$amph$d34S$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd34S) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$amph$d34S$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$amph$d34S$seltab
+```
+
+Top model
+
+```{r}
+#reslist$amph$d34S$top <- with(reslist$amph$d34S, candset[[seltab$model[1]]])
+reslist$amph$d34S$top <- reslist$amph$d34S$candset$S0.ssn
+reslist$amph$d34S$top.aug <- augment(reslist$amph$d34S$top)
+reslist$amph$d34S$pred.aug <- augment(reslist$amph$d34S$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$amph$d34S$top.loocv <- loocv(reslist$amph$d34S$top, cv_predict=TRUE)
+summary(reslist$amph$d34S$top)
+varcomp(reslist$amph$d34S$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+### Hydrobiidae Isoscapes
+
+#### $\delta^{13}C$
+
+```{r}
+namesd13C <- paste0("C", 0:(length(hypsd13C)-1), ".ssn")
+reslist$muds$d13C$candset <- lapply(hypsd13C, function(x) {
+  ssn_lm(formula=formula(paste("d13C ~", x)),
+         ssn.object =muds_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$muds$d13C$candset) <- namesd13C
+reslist$muds$d13C$seltab <- lapply(reslist$muds$d13C$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd13C) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$muds$d13C$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$muds$d13C$seltab
+```
+
+Top model
+
+```{r}
+reslist$muds$d13C$top <- with(reslist$muds$d13C, candset[[seltab$model[1]]])
+reslist$muds$d13C$top.aug <- augment(reslist$muds$d13C$top)
+reslist$muds$d13C$pred.aug <- augment(reslist$muds$d13C$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$muds$d13C$top.loocv <- loocv(reslist$muds$d13C$top, cv_predict=TRUE)
+summary(reslist$muds$d13C$top)
+varcomp(reslist$muds$d13C$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{15}N$
+
+```{r}
+namesd15N <- paste0("N", 0:(length(hypsd15N)-1), ".ssn")
+reslist$muds$d15N$candset <- lapply(hypsd15N, function(x) {
+  ssn_lm(formula=formula(paste("d15N ~", x)),
+         ssn.object =muds_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         euclid_type ="exponential",
+         random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$muds$d15N$candset) <- namesd15N
+reslist$muds$d15N$seltab <- lapply(reslist$muds$d15N$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd15N) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$muds$d15N$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$muds$d15N$seltab
+```
+
+Top model
+
+```{r}
+reslist$muds$d15N$top <- with(reslist$muds$d15N, candset[[seltab$model[1]]])
+reslist$muds$d15N$top.aug <- augment(reslist$muds$d15N$top)
+reslist$muds$d15N$pred.aug <- augment(reslist$muds$d15N$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$muds$d15N$top.loocv <- loocv(reslist$muds$d15N$top, cv_predict=TRUE)
+summary(reslist$muds$d15N$top)
+varcomp(reslist$muds$d15N$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+#### $\delta^{34}S$
+
+Due to low sample size, create isoscapes from the intercept-only model and only use river-specific spatial error structures
+
+```{r}
+namesd34S <- paste0("S", 0:(length(hypsd34S)-1), ".ssn")
+reslist$muds$d34S$candset <- lapply(hypsd34S, function(x) {
+  ssn_lm(formula=formula(paste("d34S ~", x)),
+         ssn.object =muds_ssn,
+         tailup_type ="exponential",
+         taildown_type ="exponential",
+         #euclid_type ="exponential",
+         #random =~ as.factor(SiteID),
+         additive ="afvArea")
+})
+names(reslist$muds$d34S$candset) <- namesd34S
+reslist$muds$d34S$seltab <- lapply(reslist$muds$d34S$candset, glance) %>% 
+  bind_rows() %>% 
+  mutate(model=namesd34S) %>% 
+  select(model, n, p, npar, AICc, pseudo.r.squared) %>% 
+  mutate(cor2=sapply(reslist$muds$d34S$candset, 
+                     function(x) pull(loocv(x), cor2))) %>% 
+  arrange(AICc)
+reslist$muds$d34S$seltab
+```
+
+Top model
+
+```{r}
+#reslist$muds$d34S$top <- with(reslist$muds$d34S, candset[[seltab$model[1]]])
+reslist$muds$d34S$top <- reslist$muds$d34S$candset$S0.ssn
+reslist$muds$d34S$top.aug <- augment(reslist$muds$d34S$top)
+reslist$muds$d34S$pred.aug <- augment(reslist$muds$d34S$top, newdata="pred500",
+                                      se_fit=TRUE, interval="prediction")
+reslist$muds$d34S$top.loocv <- loocv(reslist$muds$d34S$top, cv_predict=TRUE)
+summary(reslist$muds$d34S$top)
+varcomp(reslist$muds$d34S$top) %>% mutate(proportion=round(proportion, 2))
+```
+
+
+## Summary information 
+
+Organism	n	# of sites	Stable Isotope	Mean ± SD	Minimum	Maximum	Range
+Biofilm	87	29	δ13C	-25.8 ± 1.3	-28.4	-21.5	6.9
+			δ15N	3.5 ± 0.6	1.8	6.3	4.5
+Heptageniidae	72	24	δ13C	-33.4 ± 2.4	-38.4	-29.0	9.4
+			δ15N	6.1 ± 1.1	2.2	8.3	6.1
+			δ34S* 	-1.9 ± 1.5	-4.4	1.3	5.7
+Hydrobiidae	33	11	δ13C	-31.4 ± 2.0	-34.4	-25.8	8.6
+			δ15N	6.2 ± 0.9	4.6	8.5	3.9
+Amphipoda	21	7	δ13C	-30.1 ± 1.6	-33.7	-27.9	5.8
+			δ15N	5.8 ± 1.2	3.7	7.7	4
+
+```{r}
+summbiof <- biof_ssn$obs %>% pivot_longer(cols=d13C:d15N) %>% 
+  st_drop_geometry() %>% group_by(name) %>% 
+  summarize(n=n(), nsites=length(unique(SiteID)), mean=mean(value, na.rm=TRUE),
+            sd=sd(value, na.rm=TRUE), min=min(value, na.rm=TRUE),
+            max=max(value, na.rm=TRUE)) %>% ungroup() %>% 
+  mutate(Organism="biof")
+summhept <- hept_ssn$obs %>% pivot_longer(cols=c(d13C,d15N,d34S)) %>% 
+  st_drop_geometry() %>% group_by(name) %>% 
+  summarize(n=n(), nsites=length(unique(SiteID)), mean=mean(value, na.rm=TRUE),
+            sd=sd(value, na.rm=TRUE), min=min(value, na.rm=TRUE),
+            max=max(value, na.rm=TRUE)) %>% ungroup() %>% 
+  mutate(Organism="hept")
+summamph <- amph_ssn$obs %>% pivot_longer(cols=c(d13C,d15N,d34S)) %>% 
+  st_drop_geometry() %>% group_by(name) %>% 
+  summarize(n=n(), nsites=length(unique(SiteID)), mean=mean(value, na.rm=TRUE),
+            sd=sd(value, na.rm=TRUE), min=min(value, na.rm=TRUE),
+            max=max(value, na.rm=TRUE)) %>% ungroup() %>% 
+  mutate(Organism="amph")
+summmuds <- muds_ssn$obs %>% pivot_longer(cols=c(d13C,d15N,d34S)) %>% 
+  st_drop_geometry() %>% group_by(name) %>% 
+  summarize(n=n(), nsites=length(unique(SiteID)), mean=mean(value, na.rm=TRUE),
+            sd=sd(value, na.rm=TRUE), min=min(value, na.rm=TRUE),
+            max=max(value, na.rm=TRUE)) %>% ungroup() %>% 
+  mutate(Organism="muds")
+
+bind_rows(summbiof, summhept, summamph, summmuds) %>% relocate(Organism)
+```
+
+
+## Assessment of Model Performance
+
+### Table of d13C models
+
+```{r}
+#d13C mods
+tab13C <- bind_rows(
+  bind_cols(
+    data.frame(model=reslist$biof$d13C$seltab$model[1]),
+    (reslist$biof$d13C$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$biof$d13C$top$coefficients$params_object$nugget,
+    reslist$biof$d13C$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$biof$d13C$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  ) %>% mutate(Organism="biof"),
+  bind_cols(
+    data.frame(model=reslist$hept$d13C$seltab$model[1]),
+    (reslist$hept$d13C$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$hept$d13C$top$coefficients$params_object$nugget,
+    reslist$hept$d13C$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$hept$d13C$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  ) %>% mutate(Organism="hept"),
+  bind_cols(
+    data.frame(model=reslist$amph$d13C$seltab$model[1]),
+    (reslist$amph$d13C$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$amph$d13C$top$coefficients$params_object$nugget,
+    reslist$amph$d13C$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$amph$d13C$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  ) %>% mutate(Organism="amph"),
+  bind_cols(
+    data.frame(model=reslist$muds$d13C$seltab$model[1]),
+    (reslist$muds$d13C$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$muds$d13C$top$coefficients$params_object$nugget,
+    reslist$muds$d13C$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$muds$d13C$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  ) %>% mutate(Organism="muds")
+)
+```
+
+### Table of d15N models
+
+```{r}
+#d15N mods
+tab15N <- bind_rows(
+  bind_cols(
+    data.frame(model=reslist$biof$d15N$seltab$model[1]),
+    (reslist$biof$d15N$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$biof$d15N$top$coefficients$params_object$nugget,
+    reslist$biof$d15N$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$biof$d15N$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="biof"),
+  bind_cols(
+    data.frame(model=reslist$hept$d15N$seltab$model[1]),
+    (reslist$hept$d15N$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$hept$d15N$top$coefficients$params_object$nugget,
+    reslist$hept$d15N$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$hept$d15N$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="hept"),
+  bind_cols(
+    data.frame(model=reslist$amph$d15N$seltab$model[1]),
+    (reslist$amph$d15N$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$amph$d15N$top$coefficients$params_object$nugget,
+    reslist$amph$d15N$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$amph$d15N$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="amph"),
+  bind_cols(
+    data.frame(model=reslist$muds$d15N$seltab$model[1]),
+    (reslist$muds$d15N$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$muds$d15N$top$coefficients$params_object$nugget,
+    reslist$muds$d15N$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$muds$d15N$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="muds")
+)
+```
+
+### Table of d34S models
+
+```{r}
+#d34S mods
+tab34S <- bind_rows(
+  bind_cols(
+    data.frame(model=reslist$hept$d34S$seltab$model[1]),
+    (reslist$hept$d34S$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$hept$d34S$top$coefficients$params_object$nugget,
+    reslist$hept$d34S$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$hept$d34S$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="hept"),
+  bind_cols(
+    data.frame(model=reslist$amph$d34S$seltab$model[1]),
+    (reslist$amph$d34S$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$amph$d34S$top$coefficients$params_object$nugget,
+    reslist$amph$d34S$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$amph$d34S$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="amph"),
+  bind_cols(
+    data.frame(model=reslist$muds$d34S$seltab$model[1]),
+    (reslist$muds$d34S$top %>% summary())$coefficients$fixed %>% 
+      rownames_to_column(var="coeff"),
+    nugget=reslist$muds$d34S$top$coefficients$params_object$nugget,
+    reslist$muds$d34S$top %>% glance() %>% select(pseudo.r.squared),
+    reslist$muds$d34S$top.loocv$stats %>% select(RMSPE, cor2, cover.90)
+  )%>% mutate(Organism="muds")
+)
+```
+
+```{r}
+bind_rows(
+  tab13C %>% mutate(Response="d13C") %>% relocate(model, Response, Organism),
+  tab15N %>% mutate(Response="d15N") %>% relocate(model, Response, Organism), 
+  tab34S %>% mutate(Response="d34S") %>% relocate(model, Response, Organism) 
+)
+```
+
+
+# Isoscape prediction summaries
+
+## Biofilm
+
+```{r}
+reslist$biof$d13C$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$biof$d15N$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+```
+
+## Heptageniidae 
+
+```{r} 
+reslist$hept$d13C$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$hept$d15N$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$hept$d34S$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+```
+
+## Amphipoda
+
+```{r} 
+reslist$amph$d13C$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$amph$d15N$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$amph$d34S$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+```
+
+## Hydrobiidae
+
+```{r}
+reslist$muds$d13C$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$muds$d15N$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+reslist$muds$d34S$pred.aug %>% select(.fitted, .se.fit) %>% summary()
+```
+
+```{r session-info}
+sessionInfo()
+```
